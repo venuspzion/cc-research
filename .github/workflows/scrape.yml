@@ -1,16 +1,16 @@
 name: Scrape CompanyCam
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
   push:
     branches: [main]
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours max
+    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Install tools
         run: |
           sudo apt-get install -y wget
@@ -24,14 +24,14 @@ jobs:
             --reject "*.png,*.jpg,*.jpeg,*.gif,*.svg,*.woff,*.mp4" \
             --user-agent="Mozilla/5.0 Chrome/120.0" \
             https://companycam.com
-          
+
       - name: Extract all text
         run: |
           python3 -c "
           import os, json
           from pathlib import Path
           from html.parser import HTMLParser
-          
+
           class TextExtract(HTMLParser):
               def __init__(self):
                   super().__init__()
@@ -44,7 +44,7 @@ jobs:
               def handle_data(self, data):
                   if not self.skip and data.strip():
                       self.text.append(data.strip())
-          
+
           results = []
           for f in Path('companycam.com').rglob('*.html'):
               parser = TextExtract()
@@ -52,14 +52,14 @@ jobs:
                   parser.feed(f.read_text(errors='ignore'))
                   results.append({'path': str(f), 'content': ' '.join(parser.text)})
               except: pass
-          
+
           with open('companycam_content.json','w') as out:
               json.dump(results, out, indent=2)
           print(f'Extracted {len(results)} pages')
           "
-          
+
       - name: Upload results as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: companycam-scraped-data
           path: |
