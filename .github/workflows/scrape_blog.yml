@@ -1,0 +1,64 @@
+name: Scrape CompanyCam Blog
+on:
+  workflow_dispatch:
+
+jobs:
+  scrape_blog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get install -y wget
+          pip install beautifulsoup4
+
+      - name: Mirror blog.companycam.com
+        run: |
+          wget --mirror --convert-links --adjust-extension \
+            --no-parent --wait=1 --random-wait \
+            -e robots=off \
+            --reject "*.png,*.jpg,*.jpeg,*.gif,*.svg,*.woff,*.mp4" \
+            --user-agent="Mozilla/5.0 Chrome/120.0" \
+            https://blog.companycam.com
+
+      - name: Extract text
+        run: |
+          python3 -c "
+          import json
+          from pathlib import Path
+          from html.parser import HTMLParser
+
+          class TextExtract(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.text = []
+                  self.skip = False
+              def handle_starttag(self, tag, attrs):
+                  if tag in ['script','style','nav','footer']: self.skip=True
+              def handle_endtag(self, tag):
+                  if tag in ['script','style','nav','footer']: self.skip=False
+              def handle_data(self, data):
+                  if not self.skip and data.strip():
+                      self.text.append(data.strip())
+
+          results = []
+          for f in Path('blog.companycam.com').rglob('*.html'):
+              parser = TextExtract()
+              try:
+                  parser.feed(f.read_text(errors='ignore'))
+                  results.append({'path': str(f), 'content': ' '.join(parser.text)})
+              except: pass
+
+          with open('blog_content.json','w') as out:
+              json.dump(results, out, indent=2)
+          print(f'Extracted {len(results)} pages')
+          "
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blog-scraped-data
+          path: blog_content.json
+          retention-days: 30
