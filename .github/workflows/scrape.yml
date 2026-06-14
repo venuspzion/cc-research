@@ -1,67 +1,237 @@
-name: Scrape CompanyCam
+name: Scrape CompanyCam All Sites
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Install dependencies
         run: |
           sudo apt-get install -y wget
-          pip install scrapy beautifulsoup4 requests yt-dlp
+          pip install beautifulsoup4 requests
 
-      - name: Mirror CompanyCam website
+      # ─────────────────────────────────────────
+      # SITE 1: companycam.com
+      # ─────────────────────────────────────────
+      - name: Scrape companycam.com
         run: |
-          wget --mirror --convert-links --adjust-extension \
-            --no-parent --wait=1 --random-wait \
-            -e robots=off \
-            --reject "*.png,*.jpg,*.jpeg,*.gif,*.svg,*.woff,*.mp4" \
-            --user-agent="Mozilla/5.0 Chrome/120.0" \
-            https://companycam.com
+          python3 << 'EOF'
+          import requests, json, time, random
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin, urlparse
 
-      - name: Extract all text
-        run: |
-          python3 -c "
-          import os, json
-          from pathlib import Path
-          from html.parser import HTMLParser
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://www.google.com/",
+              "DNT": "1",
+          }
 
-          class TextExtract(HTMLParser):
-              def __init__(self):
-                  super().__init__()
-                  self.text = []
-                  self.skip = False
-              def handle_starttag(self, tag, attrs):
-                  if tag in ['script','style','nav','footer']: self.skip=True
-              def handle_endtag(self, tag):
-                  if tag in ['script','style','nav','footer']: self.skip=False
-              def handle_data(self, data):
-                  if not self.skip and data.strip():
-                      self.text.append(data.strip())
-
+          BASE = "https://companycam.com"
+          DOMAIN = "companycam.com"
+          visited = set()
           results = []
-          for f in Path('companycam.com').rglob('*.html'):
-              parser = TextExtract()
+          queue = [BASE]
+          session = requests.Session()
+          session.headers.update(HEADERS)
+
+          def clean_text(soup):
+              for tag in soup(["script","style","nav","footer","header","noscript"]):
+                  tag.decompose()
+              return " ".join(soup.get_text().split())
+
+          while queue and len(visited) < 300:
+              url = queue.pop(0)
+              if url in visited:
+                  continue
+              visited.add(url)
               try:
-                  parser.feed(f.read_text(errors='ignore'))
-                  results.append({'path': str(f), 'content': ' '.join(parser.text)})
-              except: pass
+                  time.sleep(random.uniform(0.3, 1.0))
+                  r = session.get(url, timeout=15)
+                  if r.status_code != 200:
+                      print(f"SKIP {r.status_code}: {url}")
+                      continue
+                  soup = BeautifulSoup(r.text, "html.parser")
+                  text = clean_text(soup)
+                  title = soup.title.string.strip() if soup.title else ""
+                  results.append({"url": url, "title": title, "content": text})
+                  print(f"[{len(results)}] OK: {url}")
+                  for a in soup.find_all("a", href=True):
+                      href = urljoin(url, a["href"])
+                      p = urlparse(href)
+                      if p.netloc == DOMAIN and href not in visited and href not in queue:
+                          queue.append(href)
+              except Exception as e:
+                  print(f"ERROR: {url} — {e}")
 
-          with open('companycam_content.json','w') as out:
-              json.dump(results, out, indent=2)
-          print(f'Extracted {len(results)} pages')
-          "
+          import os
+          os.makedirs("scraped_data", exist_ok=True)
+          with open("scraped_data/companycam_main.json", "w") as f:
+              json.dump(results, f, indent=2)
+          print(f"\n✅ companycam.com — {len(results)} pages scraped")
+          EOF
 
-      - name: Upload results as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: companycam-scraped-data
-          path: |
-            companycam_content.json
-          retention-days: 30
+      # ─────────────────────────────────────────
+      # SITE 2: help.companycam.com
+      # ─────────────────────────────────────────
+      - name: Scrape help.companycam.com
+        run: |
+          python3 << 'EOF'
+          import requests, json, time, random
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin, urlparse
+
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://www.google.com/",
+              "DNT": "1",
+          }
+
+          BASE = "https://help.companycam.com"
+          DOMAIN = "help.companycam.com"
+          visited = set()
+          results = []
+          queue = [BASE]
+          session = requests.Session()
+          session.headers.update(HEADERS)
+
+          def clean_text(soup):
+              for tag in soup(["script","style","nav","footer","header","noscript"]):
+                  tag.decompose()
+              return " ".join(soup.get_text().split())
+
+          while queue and len(visited) < 500:
+              url = queue.pop(0)
+              if url in visited:
+                  continue
+              visited.add(url)
+              try:
+                  time.sleep(random.uniform(0.3, 1.0))
+                  r = session.get(url, timeout=15)
+                  if r.status_code != 200:
+                      print(f"SKIP {r.status_code}: {url}")
+                      continue
+                  soup = BeautifulSoup(r.text, "html.parser")
+                  text = clean_text(soup)
+                  title = soup.title.string.strip() if soup.title else ""
+                  results.append({"url": url, "title": title, "content": text})
+                  print(f"[{len(results)}] OK: {url}")
+                  for a in soup.find_all("a", href=True):
+                      href = urljoin(url, a["href"])
+                      p = urlparse(href)
+                      if p.netloc == DOMAIN and href not in visited and href not in queue:
+                          queue.append(href)
+              except Exception as e:
+                  print(f"ERROR: {url} — {e}")
+
+          import os
+          os.makedirs("scraped_data", exist_ok=True)
+          with open("scraped_data/companycam_help.json", "w") as f:
+              json.dump(results, f, indent=2)
+          print(f"\n✅ help.companycam.com — {len(results)} pages scraped")
+          EOF
+
+      # ─────────────────────────────────────────
+      # SITE 3: blog.companycam.com
+      # ─────────────────────────────────────────
+      - name: Scrape blog.companycam.com
+        run: |
+          python3 << 'EOF'
+          import requests, json, time, random
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin, urlparse
+
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://www.google.com/",
+              "DNT": "1",
+          }
+
+          BASE = "https://blog.companycam.com"
+          DOMAIN = "blog.companycam.com"
+          visited = set()
+          results = []
+          queue = [BASE]
+          session = requests.Session()
+          session.headers.update(HEADERS)
+
+          def clean_text(soup):
+              for tag in soup(["script","style","nav","footer","header","noscript"]):
+                  tag.decompose()
+              return " ".join(soup.get_text().split())
+
+          while queue and len(visited) < 500:
+              url = queue.pop(0)
+              if url in visited:
+                  continue
+              visited.add(url)
+              try:
+                  time.sleep(random.uniform(0.3, 1.0))
+                  r = session.get(url, timeout=15)
+                  if r.status_code != 200:
+                      print(f"SKIP {r.status_code}: {url}")
+                      continue
+                  soup = BeautifulSoup(r.text, "html.parser")
+                  text = clean_text(soup)
+                  title = soup.title.string.strip() if soup.title else ""
+                  results.append({"url": url, "title": title, "content": text})
+                  print(f"[{len(results)}] OK: {url}")
+                  for a in soup.find_all("a", href=True):
+                      href = urljoin(url, a["href"])
+                      p = urlparse(href)
+                      if p.netloc == DOMAIN and href not in visited and href not in queue:
+                          queue.append(href)
+              except Exception as e:
+                  print(f"ERROR: {url} — {e}")
+
+          import os
+          os.makedirs("scraped_data", exist_ok=True)
+          with open("scraped_data/companycam_blog.json", "w") as f:
+              json.dump(results, f, indent=2)
+          print(f"\n✅ blog.companycam.com — {len(results)} pages scraped")
+          EOF
+
+      # ─────────────────────────────────────────
+      # SUMMARY: counts across all 3 sites
+      # ─────────────────────────────────────────
+      - name: Print summary
+        run: |
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          total = 0
+          for f in sorted(Path("scraped_data").glob("*.json")):
+              data = json.loads(f.read_text())
+              words = sum(len(p["content"].split()) for p in data)
+              print(f"  {f.name}: {len(data)} pages — {words:,} words")
+              total += len(data)
+          print(f"\n  TOTAL: {total} pages across all sites")
+          EOF
+
+      # ─────────────────────────────────────────
+      # COMMIT results directly to repo
+      # ─────────────────────────────────────────
+      - name: Commit scraped data to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scraped_data/
+          git diff --staged --quiet || git commit -m "chore: scraped data update $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
